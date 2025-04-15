@@ -11,7 +11,7 @@ param(
     [string]$DataFactoryName,
     
     [Parameter(Mandatory=$false)]
-    [string]$OutputPath = "$($env:USERPROFILE)\Documents\ADF_Report.csv",
+    [string]$OutputPath = "$($env:USERPROFILE)\Documents\ADF_Pipeline_Utilization.csv",
     
     [Parameter(Mandatory=$false)]
     [string]$TenantId,
@@ -132,6 +132,36 @@ function Select-SubscriptionInteractive {
     }
 }
 
+# Function to extract folder path from pipeline object
+function Get-PipelineFolderPath {
+    param (
+        [Parameter(Mandatory=$true)]
+        [object]$Pipeline
+    )
+    
+    try {
+        # Check if the pipeline has a folder property in its properties
+        if ($Pipeline.properties.folder -and $Pipeline.properties.folder.name) {
+            return $Pipeline.properties.folder.name
+        }
+        
+        # Alternative approach - check for folder information in the pipeline name
+        # (Some ADFs store folder info in the pipeline name with / or \ separators)
+        $pipelineName = $Pipeline.name
+        if ($pipelineName -match "^(.*[/\\]).*$") {
+            $folderPath = $matches[1].TrimEnd('/','\\')
+            return $folderPath.Replace('/', ' > ').Replace('\', ' > ')
+        }
+        
+        # If we get here, it's likely a pipeline at the root level
+        return "Root"
+    }
+    catch {
+        Write-Host "Error extracting folder: $_"
+        return "Unknown"
+    }
+}
+
 try {
     # Step 1: Get tenant ID if not provided
     if (-not $TenantId) {
@@ -247,7 +277,10 @@ try {
             
             # Add to results
             $results += [PSCustomObject]@{
+                DataFactoryName = $DataFactoryName
                 PipelineName = $pipeline.name
+                # Pass the entire pipeline object instead of just the ID
+                PipelineLocation = Get-PipelineFolderPath -Pipeline $pipeline
                 IsUtilized = if ($isUtilized) { "Yes" } else { "No" }
                 RunCount = $runCount
                 LastUpdated = if ($pipeline.properties.lastPublishTime) { $pipeline.properties.lastPublishTime } else { "N/A" }
@@ -258,7 +291,9 @@ try {
         catch {
             Write-Host "Error processing pipeline runs for $($pipeline.name): $_"
             $results += [PSCustomObject]@{
+                DataFactoryName = $DataFactoryName
                 PipelineName = $pipeline.name
+                PipelineLocation = Get-PipelineFolderPath -Pipeline $pipeline  # Updated here too
                 IsUtilized = "Error"
                 RunCount = 0
                 LastUpdated = if ($pipeline.properties.lastPublishTime) { $pipeline.properties.lastPublishTime } else { "N/A" }
